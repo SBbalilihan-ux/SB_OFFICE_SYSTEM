@@ -139,6 +139,25 @@ body{
   font-size: 13px;
   margin: -6px 0 14px;
 }
+.form-hint{
+  color: #666666;
+  font-size: 12px;
+  margin: -6px 0 14px;
+}
+.link-btn{
+  background: none;
+  border: none;
+  padding: 0;
+  color: #090446;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.link-btn:disabled{
+  opacity: 0.6;
+  cursor: default;
+}
 .form-notice{
   background: #fef3c7;
   color: #92400e;

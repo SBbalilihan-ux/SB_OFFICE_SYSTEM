@@ -170,7 +170,7 @@ router.post('/login', loginLimiter, [
     })
     res.json({
   success: true, token,
-  user: { id: user.id, name: user.name, username: user.username, email: user.email, role: user.role, position: user.position, photo: user.photo, mustChangePassword: user.must_change_password }
+  user: { id: user.id, name: user.name, username: user.username, email: user.email, role: user.role, position: user.position, photo: user.photo, mustChangePassword: user.must_change_password, tourCompleted: user.tour_completed }
 })
   } catch (err) {
     console.error('LOGIN ERROR:', err)
@@ -185,6 +185,8 @@ router.post('/logout', verifyToken, async (req, res) => {
 })
 
 // POST /api/admin/add
+// Like POST /api/users, the password is temporary — must_change_password
+// makes the new staff account set its own on first login.
 router.post('/admin/add', accountCreationLimiter, verifyToken, adminOnly, upload.single('photo'), handleMulterError, [
   body('name').trim().notEmpty().withMessage('Name is required.'),
   body('username').trim().escape().notEmpty().isAlphanumeric().withMessage('Username must be alphanumeric.'),
@@ -208,7 +210,7 @@ try {
   const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS)
   const { data, error } = await supabase
     .from('users')
-    .insert({ name, username, email, password: hashedPassword, role: 'admin', position: position || 'secretary', photo, photo_path })
+    .insert({ name, username, email, password: hashedPassword, role: 'admin', position: position || 'secretary', photo, photo_path, must_change_password: true })
     .select().single()
     if (error) {
       if (error.code === '23505')

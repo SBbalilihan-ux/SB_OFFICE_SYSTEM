@@ -4,6 +4,12 @@ const supabase = require('../config/supabase')
 
 const JWT_SECRET = process.env.JWT_SECRET
 
+const isAllowedBeforePasswordChange = (req, userId) => {
+  const path = req.originalUrl.split('?')[0].replace(/\/+$/, '')
+  return (req.method === 'PUT' && path === `/api/users/${userId}/password`)
+    || (req.method === 'POST' && path === '/api/logout')
+}
+
 const verifyToken = async (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1]
   if (!token) return res.status(401).json({ error: 'No token provided.' })
@@ -13,7 +19,7 @@ const verifyToken = async (req, res, next) => {
       audience: 'sb-client'
     })
     const { data: user, error: dbError } = await supabase
-      .from('users').select('is_archived, role, position').eq('id', decoded.id).single()
+      .from('users').select('is_archived, role, position, must_change_password').eq('id', decoded.id).single()
     // A Supabase query failure (no internet reaching it, a timeout, a 5xx)
     // is not the same thing as an invalid token — Supabase is a remote
     // service, so this can fail even when the token itself is perfectly
@@ -29,6 +35,12 @@ const verifyToken = async (req, res, next) => {
       return res.status(401).json({ error: 'Account not found.' })
     if (user.is_archived)
       return res.status(401).json({ error: 'This account has been archived.' })
+    // Still on the temporary password the office handed out — the only
+    // things this token may do are set a real password or log out. Enforced
+    // here rather than just by LogIn.jsx's forced-change screen, so the
+    // step can't be skipped by calling the API directly with the token.
+    if (user.must_change_password && !isAllowedBeforePasswordChange(req, decoded.id))
+      return res.status(403).json({ error: 'You must change your temporary password before continuing.', code: 'PASSWORD_CHANGE_REQUIRED' })
     // role/position are re-read live rather than trusted from the JWT
     // payload, so a permission change (de-admin'ing someone, reassigning
     // their position) takes effect on their very next request instead of

@@ -23,6 +23,9 @@ const SALT_ROUNDS = 10
 // button's protection was purely cosmetic (any unauthenticated caller could
 // hit /register directly). /register stays as-is for public self-signup;
 // this route is the admin-initiated equivalent with real access control.
+// The password given here is a temporary one the office hands to the
+// account owner — must_change_password forces them to set their own on
+// first login before they can reach the dashboard (see verifyToken).
 router.post('/', verifyToken, adminOnly, upload.single('photo'), handleMulterError, [
   body('name').trim().notEmpty().withMessage('Name is required.'),
   body('username').trim().notEmpty().isAlphanumeric().withMessage('Username must be alphanumeric.'),
@@ -45,7 +48,7 @@ router.post('/', verifyToken, adminOnly, upload.single('photo'), handleMulterErr
     const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS)
     const { data, error } = await supabase
       .from('users')
-      .insert({ name, username, email, password: hashedPassword, role: 'user', position, photo, photo_path })
+      .insert({ name, username, email, password: hashedPassword, role: 'user', position, photo, photo_path, must_change_password: true })
       .select().single()
     if (error) {
       if (error.code === '23505') return res.status(400).json({ error: 'Username or email already exists.' })
@@ -102,6 +105,22 @@ router.get('/check-availability', verifyToken, adminOnly, async (req, res) => {
     const { data, error } = await query.limit(1)
     if (error) return res.status(500).json({ error: error.message })
     res.json({ available: data.length === 0 })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// PUT /api/users/me/tour-completed
+// Marks the dashboard's guided tour as finished or skipped for the signed-in
+// account, so it doesn't auto-start again on their next login (see
+// migrations/036_add_tour_completed.sql). Registered before the /:id
+// routes so "me" isn't read as an id.
+router.put('/me/tour-completed', verifyToken, async (req, res) => {
+  try {
+    const { error } = await supabase
+      .from('users').update({ tour_completed: true }).eq('id', req.user.id)
+    if (error) return res.status(500).json({ error: error.message })
+    res.json({ success: true })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -337,6 +356,10 @@ router.put('/:id/password', verifyToken, [
       const isMatch = await bcrypt.compare(currentPassword, user.password)
       if (!isMatch)
         return res.status(400).json({ error: 'Current password is incorrect.' })
+      // Otherwise the first-login change could just re-enter the temporary
+      // password the office handed out and keep it.
+      if (newPassword === currentPassword)
+        return res.status(400).json({ error: 'New password must be different from your current password.' })
     }
     const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS)
     const { error } = await supabase

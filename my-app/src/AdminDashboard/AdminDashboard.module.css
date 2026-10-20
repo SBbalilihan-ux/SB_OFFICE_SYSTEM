@@ -1822,6 +1822,7 @@
   .mobileTopbar { display: flex; }
 }
 
+
 /* ============================================================
    MAIN CONTENT
    ============================================================ */
@@ -3867,6 +3868,34 @@
   padding: 14px 56px;
   margin: -56px -56px 20px -56px;
   color: #fff;
+  position: relative;
+}
+
+/* Small, faint "?" in the banner's top-right corner — replays the guided
+   tour (productTour.js). */
+.dashHelpBtn {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 50%;
+  color: rgba(255, 255, 255, 0.45);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, background 0.15s;
+}
+
+.dashHelpBtn:hover,
+.dashHelpBtn:focus-visible {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+  outline: none;
 }
 
 /* .main padding drops to 24px in this range (see .main's own 1024/769

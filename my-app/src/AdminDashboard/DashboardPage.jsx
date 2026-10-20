@@ -23,6 +23,7 @@ import {
   Image,
   Download,
   Presentation,
+  HelpCircle,
 } from "lucide-react";
 import styles from "./AdminDashboard.module.css";
 import lStyles from "./LegislativeModule.module.css";
@@ -359,6 +360,7 @@ const DashboardPage = ({
   loading = false,
   onNavigate,
   onReview,
+  onStartTour,
   canQuickAdd = false,
   onAddOrdinance,
   onAddResolution,
@@ -738,6 +740,17 @@ const DashboardPage = ({
     <div className={styles.dashboardContainer}>
       {/* ── Top bar: greeting + inline stat chips combined ── */}
       <div className={styles.dashTopBar}>
+        {/* Replays the guided tour (productTour.js). */}
+        <button
+          type="button"
+          data-tour="help"
+          className={styles.dashHelpBtn}
+          onClick={onStartTour}
+          aria-label="Show the guided tour"
+          title="Show the guided tour"
+        >
+          <HelpCircle size={16} strokeWidth={1.8} />
+        </button>
         <div className={styles.dashWelcomeText}>
           <h2 className={styles.dashWelcomeTitle}>Welcome back</h2>
           <p className={styles.dashWelcomeSub}>

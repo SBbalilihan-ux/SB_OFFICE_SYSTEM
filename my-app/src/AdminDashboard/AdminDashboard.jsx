@@ -91,6 +91,7 @@ import ArchivesPage from "./ArchivesPage";
 import { TabNavigation, PresentOverlay } from "./LegislativeComponents";
 import { CreateAccountFields, LoginAccountField, SuggestMatchesModal } from "./AccountLinking";
 import MyProfilePage from "./MyProfilePage";
+import { startProductTour } from "./productTour";
 import {
   appendAccountFields,
   accountFieldsError,
@@ -171,7 +172,11 @@ export default function AdminDashboard() {
   // Records/User Management sections — the same as the desktop sidebar looks
   // once hovered open. This is what the sidebar's JSX actually keys off of
   // instead of the raw `sidebarCollapsed` state.
-  const sidebarShowsCollapsed = sidebarCollapsed && !mobileOpen;
+  // The guided tour (productTour.js) points at sidebar items, so the sidebar
+  // stays expanded for its whole run — otherwise moving the mouse over to a
+  // tour popover would collapse the rail out from under it.
+  const [touring, setTouring] = useState(false);
+  const sidebarShowsCollapsed = sidebarCollapsed && !mobileOpen && !touring;
   const [legislativeOpen, setLegislativeOpen] = useState(false);
   const [userMgmtOpen, setUserMgmtOpen] = useState(false);
   // Set when navigating from the dashboard's "Needs your review" widget so
@@ -658,6 +663,66 @@ export default function AdminDashboard() {
     setMobileOpen(false);
     if (key === "announcements") markAnnouncementsSeen();
   };
+
+  // ─── Guided tour ──────────────────────────────────────────────────────────────
+  // Opens everything the tour points at (the Dashboard page, whose banner
+  // holds the "?" button; both sidebar dropdowns; and the slide-in sidebar
+  // on mobile) first; the effect below starts the tour once that has
+  // rendered.
+  const startTour = () => {
+    if (touring) return;
+    handleTabChange("dashboard");
+    setTouring(true);
+    setLegislativeOpen(true);
+    setUserMgmtOpen(true);
+    if (window.matchMedia("(max-width: 768px)").matches) setMobileOpen(true);
+  };
+  const markTourCompleted = async () => {
+    try {
+      const stored = JSON.parse(localStorage.getItem("user") || "null");
+      if (stored) localStorage.setItem("user", JSON.stringify({ ...stored, tourCompleted: true }));
+    } catch {
+      // A corrupt stored user is handled by the init effect on next load.
+    }
+    setAdmin((prev) => (prev ? { ...prev, tourCompleted: true } : prev));
+    try {
+      await authFetch(`${API}/api/users/me/tour-completed`, { method: "PUT" });
+    } catch {
+      // Not worth interrupting anyone over — worst case the tour just
+      // starts again on their next login.
+    }
+  };
+  const endTour = () => {
+    setTouring(false);
+    setLegislativeOpen(false);
+    setUserMgmtOpen(false);
+    setMobileOpen(false);
+    markTourCompleted();
+  };
+  useEffect(() => {
+    if (!touring) return;
+    // Waits out the sidebar's expand transition (0.3s) so every step
+    // measures its element at its final position.
+    const timer = setTimeout(() => {
+      startProductTour({
+        name: admin?.name,
+        position: admin?.position,
+        onDone: endTour,
+      });
+    }, 400);
+    return () => clearTimeout(timer);
+    // Only the tour starting should trigger this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [touring]);
+  // First visit: start the tour automatically. Strictly `false` — a session
+  // stored before tourCompleted existed has no value at all, and shouldn't
+  // have the tour spring up mid-session.
+  useEffect(() => {
+    if (admin?.tourCompleted === false) startTour();
+    // Once per account load, not on every profile edit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [admin?.id]);
+
   // Only laptops/PCs with a real mouse get hover-to-expand; touch devices keep manual toggle.
   const canHoverSidebar = () =>
     typeof window !== "undefined" &&
@@ -2345,6 +2410,7 @@ export default function AdminDashboard() {
         <nav className={styles.nav}>
           {/* Dashboard */}
           <button
+            data-tour="nav-dashboard"
             className={`${styles.navBtn} ${
               activeTab === "dashboard" ? styles.navBtnActive : ""
             }`}
@@ -2359,7 +2425,7 @@ export default function AdminDashboard() {
           <div className={styles.navDivider} />
 
           {/* Legislative Records dropdown */}
-          <div className={styles.navSection}>
+          <div className={styles.navSection} data-tour="nav-legislative">
             <button
               className={styles.navSectionHeader}
               onClick={() => !sidebarShowsCollapsed && setLegislativeOpen((v) => !v)}
@@ -2425,6 +2491,7 @@ export default function AdminDashboard() {
 
           {/* Calendar */}
           <button
+            data-tour="nav-calendar"
             className={`${styles.navBtn} ${
               activeTab === "calendar" ? styles.navBtnActive : ""
             }`}
@@ -2438,6 +2505,7 @@ export default function AdminDashboard() {
 
           {/* Announcements */}
           <button
+            data-tour="nav-announcements"
             className={`${styles.navBtn} ${
               activeTab === "announcements" ? styles.navBtnActive : ""
             }`}
@@ -2456,6 +2524,7 @@ export default function AdminDashboard() {
 
           {/* Councilor Management */}
           <button
+            data-tour="nav-officials"
             className={`${styles.navBtn} ${
               activeTab === "officials" ? styles.navBtnActive : ""
             }`}
@@ -2469,6 +2538,7 @@ export default function AdminDashboard() {
 
           {/* Content Management */}
           <button
+            data-tour="nav-content"
             className={`${styles.navBtn} ${
               activeTab === "content" ? styles.navBtnActive : ""
             }`}
@@ -2483,6 +2553,7 @@ export default function AdminDashboard() {
           {/* Archives */}
           {canViewArchives && (
             <button
+              data-tour="nav-archives"
               className={`${styles.navBtn} ${
                 activeTab === "archives" ? styles.navBtnActive : ""
               }`}
@@ -2500,7 +2571,7 @@ export default function AdminDashboard() {
               <div className={styles.navDivider} />
 
               {/* User Management dropdown */}
-              <div className={styles.navSection}>
+              <div className={styles.navSection} data-tour="nav-users">
                 <button
                   className={styles.navSectionHeader}
                   onClick={() =>
@@ -2567,7 +2638,7 @@ export default function AdminDashboard() {
             </>
           )}
         </nav>
-        <div className={styles.sidebarFooter}>
+        <div className={styles.sidebarFooter} data-tour="profile">
           <button
             type="button"
             className={styles.adminInfo}
@@ -2715,6 +2786,7 @@ export default function AdminDashboard() {
             isClerk={isClerk}
             isCouncilor={isCouncilor}
             onReview={setDashboardReview}
+            onStartTour={startTour}
           />
         )}
         {/* Dashboard "Review": the record's own module page, in view-only

@@ -20,7 +20,7 @@
 // />
 
 import { useEffect, useState } from "react";
-import { X, Upload, CheckSquare } from "lucide-react";
+import { X, Upload, CheckSquare, Eye, EyeOff, RefreshCw } from "lucide-react";
 import styles from "./AdminDashboard.module.css";
 import { API, authFetch } from "./AdminContext";
 
@@ -38,6 +38,25 @@ const POSITION_OPTIONS = {
 };
 
 const AVAILABILITY_DEBOUNCE_MS = 400;
+
+// Temporary password the office hands to a new account — the account is
+// forced to replace it on first login (must_change_password). Always
+// satisfies the backend's rules (8+ chars, 1 uppercase, 1 number); skips
+// look-alike characters (0/O, 1/l/I) since it's read out or written down.
+function generateTempPassword(length = 10) {
+  const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const lower = "abcdefghijkmnpqrstuvwxyz";
+  const digits = "23456789";
+  const all = upper + lower + digits;
+  const rand = (n) => crypto.getRandomValues(new Uint32Array(1))[0] % n;
+  const chars = [upper[rand(upper.length)], digits[rand(digits.length)]];
+  while (chars.length < length) chars.push(all[rand(all.length)]);
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = rand(i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join("");
+}
 
 // Live "is this taken?" hint — a UX nicety only. The real enforcement is
 // the case-insensitive unique index in the DB (migrations/011); this just
@@ -97,6 +116,7 @@ export default function UserFormModal({
   const usernameStatus = useAvailability("username", form.username, excludeUserId, 3);
   const emailStatus = useAvailability("email", form.email, excludeUserId, 5);
   const photoInputId = `userFormPhotoInput-${mode}-${roleGroup}`;
+  const [showPassword, setShowPassword] = useState(false);
 
   return (
     <div className={styles.modalOverlay} onClick={onClose}>
@@ -158,15 +178,46 @@ export default function UserFormModal({
 
           {!isEdit && (
             <>
-              <input
-                className={styles.input}
-                type="password"
-                placeholder="Password"
-                value={form.password}
-                onChange={(e) => onFieldChange("password", e.target.value)}
-              />
+              <label className={styles.fieldLabel}>Temporary Password</label>
+              <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                <div style={{ position: "relative", flex: 1 }}>
+                  <input
+                    className={styles.input}
+                    type={showPassword ? "text" : "password"}
+                    placeholder="Temporary Password"
+                    value={form.password}
+                    onChange={(e) => onFieldChange("password", e.target.value)}
+                    style={{ paddingRight: 40 }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    style={{
+                      position: "absolute", right: 10, top: 12, background: "none",
+                      border: "none", cursor: "pointer", color: "#94a3b8", padding: 0, display: "flex",
+                    }}
+                  >
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onFieldChange("password", generateTempPassword());
+                    setShowPassword(true);
+                  }}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 6, height: 40, padding: "0 12px",
+                    background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 8,
+                    cursor: "pointer", color: "#334155", fontSize: 13, fontWeight: 600, whiteSpace: "nowrap",
+                  }}
+                >
+                  <RefreshCw size={14} /> Generate
+                </button>
+              </div>
               <p className={styles.fieldHint}>
-                At least 8 characters, with 1 uppercase letter and 1 number.
+                At least 8 characters, with 1 uppercase letter and 1 number. Give this to the account owner — they'll be asked to set their own password on first login.
               </p>
             </>
           )}
