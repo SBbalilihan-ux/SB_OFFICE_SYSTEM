@@ -261,8 +261,9 @@ function createLegislativeReviewRoutes({
   // automatically) as a record of what was turned down, but there's no path
   // back into the pipeline for it.
   //
-  // A comment explaining the rejection is optional at every reading stage —
-  // if one is given it's saved to the record and included in the email.
+  // A note explaining the rejection is required at every stage, so the
+  // Author always learns why — it's saved to the record's comments and
+  // history, shown under My Profile → Rejected, and quoted in the email.
   //
   // Also allowed while it waits on the Vice-Mayor ('ready_to_publish') and
   // once the Vice-Mayor has approved ('approved'), up until it's published —
@@ -271,23 +272,22 @@ function createLegislativeReviewRoutes({
   if (hasReadings) {
     router.put('/:id/reject', verifyToken, secretaryOnly, async (req, res) => {
       const { id } = req.params
-      const { comment } = req.body
+      const comment = (req.body.comment || '').trim()
       const { data: existing, error: fetchErr } = await supabase.from(table).select('*').eq('id', id).single()
       if (fetchErr || !existing) return res.status(404).json({ error: `${singularLabel} not found.` })
       if (!REVIEW_STATUSES.includes(existing.status) && !['ready_to_publish', 'approved'].includes(existing.status)) {
         return res.status(400).json({ error: `${singularLabel} can only be rejected during a reading, while ready to publish, or after the Vice-Mayor's approval.` })
       }
+      if (!comment) return res.status(400).json({ error: 'A note explaining the reason for rejection is required.' })
       try {
-        if (comment?.trim()) {
-          const { error: commentErr } = await supabase.from('comments').insert({
-            entity_type: entityType,
-            entity_id: id,
-            author_id: req.user.id,
-            author_role: req.user.position || req.user.role,
-            text: comment.trim(),
-          })
-          if (commentErr) return res.status(500).json({ error: commentErr.message })
-        }
+        const { error: commentErr } = await supabase.from('comments').insert({
+          entity_type: entityType,
+          entity_id: id,
+          author_id: req.user.id,
+          author_role: req.user.position || req.user.role,
+          text: comment,
+        })
+        if (commentErr) return res.status(500).json({ error: commentErr.message })
 
         const { data, conflict, error } = await atomicUpdate(id, existing.status, {
           status: 'rejected', reviewed_by: req.user.id, reviewed_at: new Date().toISOString(),
@@ -303,14 +303,12 @@ function createLegislativeReviewRoutes({
         const authorAccount = author ? await userForMember(author.id).catch(() => null) : null
         notify({
           recipientId: authorAccount?.id,
-          message: `Your ${lower} was rejected: ${labelOf(existing)}`,
+          message: `Your ${lower} was rejected: ${labelOf(existing)} — Reason: ${comment}`,
           entityType, entityId: id,
           emailSubject: `Rejected: ${labelOf(existing)}`,
           emailHtml: notificationEmailHtml(
             'Rejected',
-            (comment?.trim()
-              ? `The Secretary rejected <strong>${escapeHtml(labelOf(existing))}</strong>:<br/><em>"${escapeHtml(comment.trim())}"</em>`
-              : `The Secretary rejected <strong>${escapeHtml(labelOf(existing))}</strong>.`) +
+            `The Secretary rejected <strong>${escapeHtml(labelOf(existing))}</strong>.<br/>Reason: <em>"${escapeHtml(comment)}"</em>` +
               `<br/>You can find it under <em>My Profile → Rejected</em>.`
           ),
         })

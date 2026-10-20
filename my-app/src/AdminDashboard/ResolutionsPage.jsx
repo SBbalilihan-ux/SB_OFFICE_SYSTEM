@@ -326,10 +326,10 @@ export default function ResolutionsPage({
   // Terminal, unlike Request Changes — there's no resubmission path back to
   // pending. The record stays visible on its creator's own Profile page
   // (and the Secretary's, across every creator) as a record of the
-  // rejection. A reason is only required past first_reading — see the
-  // matching check in helpers/legislativeReviewRoutes.js.
+  // rejection. A reason is required at every stage so the Author knows why
+  // — see the matching check in helpers/legislativeReviewRoutes.js.
   const handleReject = async () => {
-    if (!viewTarget) return;
+    if (!viewTarget || !reviewCommentText.trim()) return;
     const ok = await runReviewAction(
       `/api/resolutions/${viewTarget.id}/reject`,
       {
@@ -1297,7 +1297,13 @@ export default function ResolutionsPage({
                       <textarea
                         className={lStyles.commentInput}
                         rows={2}
-                        placeholder="Add a comment..."
+                        placeholder={
+                          isSecretary &&
+                          (REVIEW_STATUSES.includes(viewTarget.status) ||
+                            ["ready_to_publish", "approved"].includes(viewTarget.status))
+                            ? "Add a comment, or the reason for rejection (required to reject)..."
+                            : "Add a comment..."
+                        }
                         value={reviewCommentText}
                         onChange={(e) => setReviewCommentText(e.target.value)}
                       />
@@ -1359,7 +1365,8 @@ export default function ResolutionsPage({
                       <div className={lStyles.pendingActionsRow}>
                         <button
                           className={`${lStyles.pillActionBtn} ${lStyles.pillReject}`}
-                          disabled={reviewSubmitting}
+                          disabled={reviewSubmitting || !reviewCommentText.trim()}
+                          title={!reviewCommentText.trim() ? "Enter a note above explaining the reason for rejection" : ""}
                           onClick={handleReject}
                         >
                           <X size={16} /> Reject
@@ -1380,7 +1387,8 @@ export default function ResolutionsPage({
                       <div className={lStyles.pendingActionsRow}>
                         <button
                           className={`${lStyles.pillActionBtn} ${lStyles.pillReject}`}
-                          disabled={reviewSubmitting}
+                          disabled={reviewSubmitting || !reviewCommentText.trim()}
+                          title={!reviewCommentText.trim() ? "Enter a note above explaining the reason for rejection" : ""}
                           onClick={handleReject}
                         >
                           <X size={16} /> Reject
@@ -1404,7 +1412,8 @@ export default function ResolutionsPage({
                       <div className={lStyles.pendingActionsRow}>
                         <button
                           className={`${lStyles.pillActionBtn} ${lStyles.pillReject}`}
-                          disabled={reviewSubmitting}
+                          disabled={reviewSubmitting || !reviewCommentText.trim()}
+                          title={!reviewCommentText.trim() ? "Enter a note above explaining the reason for rejection" : ""}
                           onClick={handleReject}
                         >
                           <X size={16} /> Reject

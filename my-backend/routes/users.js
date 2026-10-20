@@ -164,16 +164,25 @@ router.get('/me/records', verifyToken, async (req, res) => {
       }
     }
 
-    // The Secretary's reason for each rejection = the latest comment on it.
+    // The Secretary's reason for each rejection = the note saved with the
+    // 'rejected' history entry. Older rejections from before the note was
+    // required fall back to the latest comment on the record.
     for (const t of RECORD_TYPES) {
       const ids = rejected.filter((r) => r.entity_type === t.entityType).map((r) => r.id)
       if (ids.length === 0) continue
-      const { data: comments } = await supabase
-        .from('comments').select('entity_id, text, created_at')
-        .eq('entity_type', t.entityType).in('entity_id', ids)
-        .order('created_at', { ascending: false })
+      const [{ data: history }, { data: comments }] = await Promise.all([
+        supabase.from('record_history').select('entity_id, comment, created_at')
+          .eq('entity_type', t.entityType).eq('action', 'rejected').in('entity_id', ids)
+          .order('created_at', { ascending: false }),
+        supabase.from('comments').select('entity_id, text, created_at')
+          .eq('entity_type', t.entityType).in('entity_id', ids)
+          .order('created_at', { ascending: false }),
+      ])
       for (const r of rejected.filter((x) => x.entity_type === t.entityType)) {
-        r.rejection_reason = (comments || []).find((c) => c.entity_id === r.id)?.text || null
+        r.rejection_reason =
+          (history || []).find((h) => h.entity_id === r.id && h.comment)?.comment ||
+          (comments || []).find((c) => c.entity_id === r.id)?.text ||
+          null
       }
     }
 
