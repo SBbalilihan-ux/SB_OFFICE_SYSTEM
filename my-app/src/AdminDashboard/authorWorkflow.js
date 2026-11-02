@@ -34,7 +34,7 @@ export function appendAccountFields(fd, form) {
 // in the form instead of as a server round trip.
 export function accountFieldsError(form) {
   if (!wantsAccount(form)) return null;
-  if (!/^[A-Za-z0-9]+$/.test(form.account_username || "")) return "Login account: username must be letters and numbers only.";
+  if (!/^[A-Za-z0-9ñÑ]+$/.test((form.account_username || "").normalize("NFC"))) return "Login account: username must be letters (including ñ) and numbers only.";
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.account_email || "")) return "Login account: a valid email is required.";
   return null;
 }

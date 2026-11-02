@@ -8,11 +8,12 @@ const SibApiV3Sdk = require('sib-api-v3-sdk')
 
 const supabase = require('../config/supabase')
 const { verifyToken, adminOnly, validate } = require('../middleware/auth')
-const { loginLimiter, otpLimiter, accountCreationLimiter } = require('../middleware/rateLimiter')
+const { loginLimiter, otpLimiter, accountCreationLimiter, resetLinkLimiter } = require('../middleware/rateLimiter')
+const { sendPasswordLink } = require('../helpers/passwordLink')
 const { upload, handleMulterError } = require('../middleware/multer')
 const { uploadToStorage } = require('../helpers/storage')
 const { logActivity } = require('../helpers/logger')
-const { isValidEmail, getIP } = require('../helpers/utils')
+const { isValidEmail, getIP, USERNAME_ERROR, normalizeUsername, isValidUsername } = require('../helpers/utils')
 const { ROLE_POSITIONS } = require('../helpers/roles')
 const { emailShell, BRAND_PRIMARY } = require('../helpers/notify')
 
@@ -81,7 +82,7 @@ router.post('/verify-otp', async (req, res) => {
 // POST /api/register
 router.post('/register', accountCreationLimiter, upload.single('photo'), handleMulterError, [
   body('name').trim().notEmpty().withMessage('Full name is required.'),
-  body('username').trim().escape().notEmpty().isAlphanumeric().withMessage('Username must be alphanumeric.'),
+  body('username').customSanitizer(normalizeUsername).notEmpty().withMessage('Username is required.').custom(isValidUsername).withMessage(USERNAME_ERROR),
   body('email').trim().normalizeEmail().isEmail().withMessage('Invalid email format.'),
   body('password')
     .isLength({ min: 8 }).withMessage('Password must be at least 8 characters.')
@@ -130,7 +131,8 @@ router.post('/login', loginLimiter, [
   body('identifier').trim().notEmpty().withMessage('Username or email is required.'),
   body('password').notEmpty().withMessage('Password is required.'),
 ], validate, async (req, res) => {
-  const { identifier, password } = req.body
+  const { password } = req.body
+  const identifier = normalizeUsername(req.body.identifier) // NFC so an ñ matches however it was typed
   try {
     const isEmail = isValidEmail(identifier)
     const { data: users, error } = await supabase
@@ -189,7 +191,7 @@ router.post('/logout', verifyToken, async (req, res) => {
 // makes the new staff account set its own on first login.
 router.post('/admin/add', accountCreationLimiter, verifyToken, adminOnly, upload.single('photo'), handleMulterError, [
   body('name').trim().notEmpty().withMessage('Name is required.'),
-  body('username').trim().escape().notEmpty().isAlphanumeric().withMessage('Username must be alphanumeric.'),
+  body('username').customSanitizer(normalizeUsername).notEmpty().withMessage('Username is required.').custom(isValidUsername).withMessage(USERNAME_ERROR),
   body('email').trim().normalizeEmail().isEmail().withMessage('Invalid email format.'),
   body('password')
     .isLength({ min: 8 }).withMessage('Password must be at least 8 characters.')
@@ -226,7 +228,8 @@ try {
 
 // ─── Password reset (link-based) ────────────────────────────────────────────
 // Unauthenticated by design — the token itself, emailed only to the account
-// owner by POST /api/users/:id/reset-password, is the credential. Shared
+// owner by POST /api/forgot-password or /api/users/me/reset-password (or the
+// welcome email for a new official's account), is the credential. Shared
 // lookup so both routes below (checking a link, then submitting it) treat
 // "not found" and "expired" identically.
 const findValidResetToken = async (token) => {
@@ -237,6 +240,38 @@ const findValidResetToken = async (token) => {
   }
   return user
 }
+
+// POST /api/forgot-password
+// The login page's "Forgot password?": emails the account a reset link (the
+// same single-use, 1-hour link as My Profile's). Always answers with the
+// same generic message whether or not the username/email exists, so this
+// can't be used to probe which accounts exist. Archived accounts and ones
+// without an email get nothing.
+const FORGOT_PASSWORD_REPLY = 'If that account exists and has an email address, a password reset link has been sent to it. The link expires in 1 hour.'
+router.post('/forgot-password', resetLinkLimiter, [
+  body('identifier').trim().notEmpty().withMessage('Enter your username or email.'),
+], validate, async (req, res) => {
+  const identifier = normalizeUsername(req.body.identifier)
+  try {
+    const { data: users } = await supabase
+      .from('users').select('id, username, name, email, is_archived')
+      .ilike(isValidEmail(identifier) ? 'email' : 'username', identifier).limit(1)
+    const user = users?.[0]
+    if (user && !user.is_archived && user.email) {
+      try {
+        await sendPasswordLink(user, 'self')
+        await logActivity(req, 'RESET_PASSWORD', 'Auth', `Forgot password: reset link sent to ${user.username}`, 'success', {
+          userId: user.id, userName: user.name,
+        })
+      } catch (linkErr) {
+        console.error('Forgot-password email failed:', linkErr.message)
+      }
+    }
+    res.json({ success: true, message: FORGOT_PASSWORD_REPLY })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
 
 // GET /api/reset-password/:token — lets the reset page confirm the link is
 // still good before showing the "set a new password" form, rather than the

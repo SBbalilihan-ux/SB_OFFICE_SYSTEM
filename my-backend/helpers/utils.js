@@ -1,5 +1,14 @@
 const isValidEmail = (str) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(str)
 
+// Usernames: letters, numbers, and ñ/Ñ (Filipino names like Paña, Peñaflor).
+// Always normalize to NFC first — an "ñ" can arrive as one character (U+00F1)
+// or as "n" + a combining tilde (U+0303) depending on the keyboard/OS, and
+// the two must be stored and looked up identically or login would miss.
+const USERNAME_RE = /^[A-Za-z0-9ñÑ]+$/
+const USERNAME_ERROR = 'Username may only contain letters (including ñ) and numbers.'
+const normalizeUsername = (str) => String(str ?? '').normalize('NFC').trim()
+const isValidUsername = (str) => USERNAME_RE.test(normalizeUsername(str))
+
 const getIP = (req) => req.headers['x-forwarded-for'] || req.socket.remoteAddress
 
 const safeParseJSON = (str, fallback = []) => {
@@ -177,6 +186,7 @@ module.exports = {
   parseApprovedDay,
   yearInManila,
   isValidEmail, getIP, safeParseJSON, escapeHtml,
+  USERNAME_ERROR, normalizeUsername, isValidUsername,
   canEditLegislativeRecord, canArchiveLegislativeRecord, orIlikeClause, dayBoundsUTC,
   parseYearField,
 }

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { User, Lock, Eye, EyeOff } from 'lucide-react'
 import './LogIn.css'
+import logo from './assets/image/logo.png'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:5000'
 
@@ -40,6 +41,45 @@ export default function Login() {
   const [showNewPassword, setShowNewPassword] = useState(false)
   const [changeError, setChangeError] = useState('')
   const [changing, setChanging] = useState(false)
+
+  // "Forgot password?" — emails a reset link (POST /api/forgot-password).
+  // The reply is the same whether or not the account exists, so it's always
+  // shown as a neutral notice rather than a success/failure.
+  const [forgotOpen, setForgotOpen] = useState(false)
+  const [forgotIdentifier, setForgotIdentifier] = useState('')
+  const [forgotNotice, setForgotNotice] = useState('')
+  const [forgotError, setForgotError] = useState('')
+  const [sendingLink, setSendingLink] = useState(false)
+
+  const handleForgot = async (e) => {
+    e.preventDefault()
+    setForgotError('')
+    setForgotNotice('')
+    if (!forgotIdentifier.trim()) { setForgotError('Enter your username or email.'); return }
+    try {
+      setSendingLink(true)
+      const response = await fetch(`${API}/api/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier: forgotIdentifier })
+      })
+      const data = await response.json()
+      if (response.ok && data.success) setForgotNotice(data.message)
+      else setForgotError(data.error || data.errors?.[0]?.msg || 'Could not send the reset link.')
+    } catch (err) {
+      console.error('Error:', err)
+      setForgotError('Could not connect to server. Please try again.')
+    } finally {
+      setSendingLink(false)
+    }
+  }
+
+  const openForgot = () => {
+    setForgotIdentifier(identifier)
+    setForgotNotice('')
+    setForgotError('')
+    setForgotOpen(true)
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -128,7 +168,7 @@ export default function Login() {
 
   const BrandPanel = () => (
     <div className="login-left">
-      <img src="src/assets/image/logo.png" alt="logo" className="brand-logo" />
+      <img src={logo} alt="logo" className="brand-logo" />
       <h1 className="system-name">eLEGIS</h1>
       <p className="brand-sub">OFFICE OF SANGGUNIANG BAYAN</p>
       <p className="brand-tagline">Legislative Management System of Balilihan, Bohol</p>
@@ -188,6 +228,47 @@ export default function Login() {
 
             <p className="register-link">
               <button type="button" className="link-btn" onClick={backToLogin} disabled={changing}>
+                Back to login
+              </button>
+            </p>
+          </form>
+        </div>
+      </div>
+    )
+  }
+
+  if (forgotOpen) {
+    return (
+      <div className="login-page">
+        <BrandPanel />
+        <div className="login-right">
+          <form className="login-form" onSubmit={handleForgot}>
+            <h2 className="welcome-title">Forgot Password</h2>
+            <p className="welcome-sub">
+              Enter your username or email. We'll email you a link to set a new password.
+            </p>
+
+            <label className="field-label">Username or Email</label>
+            <div className="input-box">
+              <User className="input-icon-left" size={18} />
+              <input
+                type="text"
+                placeholder="Username or Email"
+                value={forgotIdentifier}
+                onChange={(e) => setForgotIdentifier(e.target.value)}
+                autoFocus
+              />
+            </div>
+
+            {forgotNotice && <p className="form-notice">{forgotNotice}</p>}
+            {forgotError && <p className="form-error">{forgotError}</p>}
+
+            <button type="submit" className="btn" disabled={sendingLink}>
+              {sendingLink ? 'Sending...' : 'Send Reset Link'}
+            </button>
+
+            <p className="register-link">
+              <button type="button" className="link-btn" onClick={() => setForgotOpen(false)} disabled={sendingLink}>
                 Back to login
               </button>
             </p>
@@ -261,6 +342,12 @@ export default function Login() {
           <button type="submit" className="btn" disabled={loading}>
             {loading ? 'Logging in...' : 'Login'}
           </button>
+
+          <p className="register-link">
+            <button type="button" className="link-btn" onClick={openForgot} disabled={loading}>
+              Forgot password?
+            </button>
+          </p>
         </form>
       </div>
     </div>

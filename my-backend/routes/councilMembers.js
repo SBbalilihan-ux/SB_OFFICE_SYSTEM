@@ -17,7 +17,7 @@ const {
   countActiveCouncilors,
   autoUpdateCouncilStatuses,
 } = require('../helpers/councils')
-const { isValidEmail } = require('../helpers/utils')
+const { isValidEmail, USERNAME_ERROR, normalizeUsername, isValidUsername } = require('../helpers/utils')
 const { sendPasswordLink } = require('../helpers/passwordLink')
 const {
   TERM_TO_USER_POSITION, LINKABLE_USER_POSITIONS, autoLinkMember, suggestLinks,
@@ -150,14 +150,14 @@ router.post('/add', verifyToken, adminOnly, secretaryOrClerk, upload.single('pho
   // so a new councilor never needs manual linking. The account's position
   // comes from the member's current term, so a term is required with it.
   const createAccount = req.body.create_account === true || req.body.create_account === 'true'
-  const accountUsername = (req.body.account_username || '').trim()
+  const accountUsername = normalizeUsername(req.body.account_username)
   const accountEmail = (req.body.account_email || '').trim().toLowerCase()
   const accountPosition = TERM_TO_USER_POSITION[position] || null
   if (createAccount) {
     if (!term_period || !term_start || !accountPosition)
       return res.status(400).json({ error: 'A current term with a position is required to create a login account.' })
-    if (!/^[A-Za-z0-9]+$/.test(accountUsername))
-      return res.status(400).json({ error: 'Username must be alphanumeric.' })
+    if (!isValidUsername(accountUsername))
+      return res.status(400).json({ error: USERNAME_ERROR })
     if (!isValidEmail(accountEmail))
       return res.status(400).json({ error: 'Valid email is required.' })
   }

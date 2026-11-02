@@ -9,9 +9,10 @@ const { resetLinkLimiter } = require('../middleware/rateLimiter')
 const { upload, handleMulterError } = require('../middleware/multer')
 const { uploadToStorage, deleteFromStorage } = require('../helpers/storage')
 const { logActivity } = require('../helpers/logger')
-const { sendPasswordLink } = require('../helpers/passwordLink')
+const { sendPasswordLink, sendPasswordResetNotice } = require('../helpers/passwordLink')
 const { ROLE_POSITIONS, ALL_POSITIONS, isValidPositionForRole } = require('../helpers/roles')
 const { autoLinkUser, memberForUser, LINKABLE_USER_POSITIONS } = require('../helpers/accountLinks')
+const { USERNAME_ERROR, normalizeUsername, isValidUsername } = require('../helpers/utils')
 
 const SALT_ROUNDS = 10
 
@@ -28,7 +29,7 @@ const SALT_ROUNDS = 10
 // first login before they can reach the dashboard (see verifyToken).
 router.post('/', verifyToken, adminOnly, upload.single('photo'), handleMulterError, [
   body('name').trim().notEmpty().withMessage('Name is required.'),
-  body('username').trim().notEmpty().isAlphanumeric().withMessage('Username must be alphanumeric.'),
+  body('username').customSanitizer(normalizeUsername).notEmpty().withMessage('Username is required.').custom(isValidUsername).withMessage(USERNAME_ERROR),
   body('email').trim().normalizeEmail().isEmail().withMessage('Valid email is required.'),
   body('password')
     .isLength({ min: 8 }).withMessage('Password must be at least 8 characters.')
@@ -100,7 +101,8 @@ router.get('/check-availability', verifyToken, adminOnly, async (req, res) => {
   if (!['username', 'email'].includes(field) || !value)
     return res.status(400).json({ error: 'field must be "username" or "email", and value is required.' })
   try {
-    let query = supabase.from('users').select('id').ilike(field, value)
+    const lookup = field === 'username' ? normalizeUsername(value) : value
+    let query = supabase.from('users').select('id').ilike(field, lookup)
     if (excludeId) query = query.neq('id', excludeId)
     const { data, error } = await query.limit(1)
     if (error) return res.status(500).json({ error: error.message })
@@ -240,7 +242,7 @@ router.get('/:id', verifyToken, adminOnly, async (req, res) => {
 // PUT /api/users/:id
 router.put('/:id', verifyToken, adminOnly, upload.single('photo'), handleMulterError, [
   body('name').trim().notEmpty().withMessage('Name is required.'),
-  body('username').trim().escape().notEmpty().isAlphanumeric().withMessage('Username must be alphanumeric.'),
+  body('username').customSanitizer(normalizeUsername).notEmpty().withMessage('Username is required.').custom(isValidUsername).withMessage(USERNAME_ERROR),
   body('email').trim().normalizeEmail().isEmail().withMessage('Valid email is required.'),
   body('role').isIn(['admin', 'user']).withMessage('Role must be admin or user.'),
   body('position').optional({ checkFalsy: true }).isIn(ALL_POSITIONS)
@@ -310,6 +312,67 @@ router.put('/:id/name', verifyToken, [
   if (error) return res.status(500).json({ error: error.message })
   await logActivity(req, 'UPDATE', 'Users', `Updated name for user ID: ${id}`)
   res.json({ success: true, name })
+})
+
+// PUT /api/users/:id/photo
+// Self-or-admin, same permission shape as /:id/name — backs My Profile's
+// "Change photo". Images only (the shared multer config also lets PDFs and
+// Word files through for other routes) and a 5 MB cap, since this is just an
+// avatar. The old photo is removed from storage once the new one is saved.
+const MAX_PHOTO_BYTES = 5 * 1024 * 1024
+router.put('/:id/photo', verifyToken, upload.single('photo'), handleMulterError, async (req, res) => {
+  const { id } = req.params
+  if (req.user.id !== parseInt(id) && req.user.role !== 'admin')
+    return res.status(403).json({ error: 'Forbidden.' })
+  if (!req.file) return res.status(400).json({ error: 'Choose a photo to upload.' })
+  if (!['image/jpeg', 'image/jpg', 'image/png'].includes(req.file.mimetype))
+    return res.status(400).json({ error: 'Photo must be a JPG or PNG image.' })
+  if (req.file.size > MAX_PHOTO_BYTES)
+    return res.status(400).json({ error: 'Photo must be 5 MB or smaller.' })
+  try {
+    const { data: existing } = await supabase
+      .from('users').select('id, photo_path').eq('id', id).single()
+    if (!existing) return res.status(404).json({ error: 'User not found.' })
+
+    const { fileName, publicUrl } = await uploadToStorage(req.file, 'users')
+    const { error } = await supabase
+      .from('users').update({ photo: publicUrl, photo_path: fileName }).eq('id', id)
+    if (error) {
+      await deleteFromStorage(fileName)
+      return res.status(500).json({ error: error.message })
+    }
+    if (existing.photo_path) await deleteFromStorage(existing.photo_path)
+
+    await logActivity(req, 'UPDATE', 'Users', `Updated profile photo for user ID: ${id}`)
+    res.json({ success: true, photo: publicUrl })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// DELETE /api/users/:id/photo
+// Self-or-admin — My Profile's "Remove photo": clears the photo so the
+// default avatar (first letter of the name) shows again, and deletes the
+// file from storage.
+router.delete('/:id/photo', verifyToken, async (req, res) => {
+  const { id } = req.params
+  if (req.user.id !== parseInt(id) && req.user.role !== 'admin')
+    return res.status(403).json({ error: 'Forbidden.' })
+  try {
+    const { data: existing } = await supabase
+      .from('users').select('id, photo_path').eq('id', id).single()
+    if (!existing) return res.status(404).json({ error: 'User not found.' })
+
+    const { error } = await supabase
+      .from('users').update({ photo: null, photo_path: null }).eq('id', id)
+    if (error) return res.status(500).json({ error: error.message })
+    if (existing.photo_path) await deleteFromStorage(existing.photo_path)
+
+    await logActivity(req, 'UPDATE', 'Users', `Removed profile photo for user ID: ${id}`)
+    res.json({ success: true })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
 })
 
 // PUT /api/users/:id/email
@@ -396,32 +459,49 @@ router.post('/me/reset-password', verifyToken, resetLinkLimiter, async (req, res
 })
 
 // POST /api/users/:id/reset-password
-// Admin-initiated password reset: emails the account a time-limited,
-// single-use link (see migrations/022_add_password_reset_token.sql) that
-// lets them set their own new password directly, instead of the old
-// flow of generating and emailing a temporary password they'd then have to
-// log in with (see the now-superseded 012_add_must_change_password.sql).
+// User Management's Reset Password: the Secretary types a new temporary
+// password and hands it to the account owner in person — no reset link is
+// emailed (links only go out from the login page's Forgot Password and the
+// owner's own My Profile). must_change_password is set so the owner must
+// replace the temporary password with their own on their next login, and
+// any outstanding reset link is cancelled.
 //
-// The email is sent BEFORE the token is stored, not after — if it were the
-// other way around and the send failed (bad API key, Brevo outage, etc.),
-// the account would be left with a live reset token nobody received a link
-// for. Sending first means a failure here leaves the account untouched and
-// safely retryable.
-router.post('/:id/reset-password', verifyToken, adminOnly, async (req, res) => {
+// Afterwards the owner gets a notice email (no password in it) so they know
+// the reset happened. The reset has already been saved by then, so a failed
+// notice doesn't undo it — it's reported back as emailSent: false instead.
+router.post('/:id/reset-password', verifyToken, adminOnly, [
+  body('newPassword')
+    .isLength({ min: 8 }).withMessage('Password must be at least 8 characters.')
+    .matches(/[A-Z]/).withMessage('Password must contain at least 1 uppercase letter.')
+    .matches(/\d/).withMessage('Password must contain at least 1 number.'),
+], validate, async (req, res) => {
   const { id } = req.params
+  if (req.user.id === parseInt(id))
+    return res.status(400).json({ error: 'To change your own password, use My Profile.' })
   try {
     const { data: existing } = await supabase
       .from('users').select('id, username, name, email').eq('id', id).single()
     if (!existing) return res.status(404).json({ error: 'User not found.' })
 
-    try {
-      await sendPasswordLink(existing, 'reset')
-    } catch (linkErr) {
-      return res.status(linkErr.status || 500).json({ error: linkErr.message })
+    const hashedPassword = await bcrypt.hash(req.body.newPassword, SALT_ROUNDS)
+    const { error } = await supabase
+      .from('users')
+      .update({ password: hashedPassword, must_change_password: true, reset_token: null, reset_token_expires: null })
+      .eq('id', id)
+    if (error) return res.status(500).json({ error: error.message })
+
+    let emailSent = false
+    if (existing.email) {
+      try {
+        await sendPasswordResetNotice(existing, req.user)
+        emailSent = true
+      } catch (emailErr) {
+        console.error('Password reset notice email failed:', emailErr.message)
+      }
     }
 
-    await logActivity(req, 'RESET_PASSWORD', 'Users', `Sent password reset link to: ${existing.username}`)
-    res.json({ success: true })
+    await logActivity(req, 'RESET_PASSWORD', 'Users', `Reset password for: ${existing.username}`)
+    res.json({ success: true, emailSent, email: existing.email })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

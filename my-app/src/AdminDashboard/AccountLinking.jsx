@@ -70,7 +70,7 @@ export function CreateAccountFields({ form, setForm, styles }) {
             className={styles.input}
             placeholder="Username (letters and numbers)"
             value={form.account_username || ""}
-            onChange={(e) => setForm({ ...form, account_username: e.target.value.replace(/[^A-Za-z0-9]/g, "") })}
+            onChange={(e) => setForm({ ...form, account_username: e.target.value.normalize("NFC").replace(/[^A-Za-z0-9ñÑ]/g, "") })}
           />
           <label className={styles.fieldLabel}>
             Email <span style={{ color: "#e53e3e" }}>*</span>

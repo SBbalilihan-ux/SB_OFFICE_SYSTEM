@@ -94,6 +94,7 @@ export default function ConfirmModal({
   onConfirm,
   onCancel,
   loading = false,
+  children, // optional extra content (e.g. form fields) shown above the buttons
 }) {
   const cfg = CONFIGS[type] || CONFIGS.info;
   const confirm = confirmLabel || cfg.confirmLabel;
@@ -207,6 +208,7 @@ export default function ConfirmModal({
 
           {title && <p className="cm-title">{title}</p>}
           {message && <p className="cm-message">{message}</p>}
+          {children}
 
           <button
             className="cm-btn cm-btn-confirm"

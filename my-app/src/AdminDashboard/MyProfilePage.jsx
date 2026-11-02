@@ -7,7 +7,10 @@
  * tabs (MyProfileRecords.jsx). Data and handlers stay in AdminDashboard.jsx.
  */
 
-import { AtSign, Mail } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { AtSign, Mail, Pencil, Upload, Trash2 } from "lucide-react";
+import ConfirmModal from "./ConfirmModal";
 import s from "./MyProfilePage.module.css";
 import { TabNavigation } from "./LegislativeComponents";
 import MyAccountTab from "./MyAccountTab";
@@ -23,6 +26,9 @@ export default function MyProfilePage({
   name,
   onNameChange,
   onSaveName,
+  onChangePhoto,
+  onRemovePhoto,
+  photoUploading,
   onSendResetLink,
   submitting,
   resetSentTo,
@@ -34,15 +40,118 @@ export default function MyProfilePage({
   onRecordsChanged,
 }) {
   const stats = myRecordStats(records);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+
+  // Edit-photo menu. Rendered into <body> at a fixed position under the
+  // edit button, because the banner clips anything that overflows it.
+  const [menuPos, setMenuPos] = useState(null); // { top, left } while open
+  const editBtnRef = useRef(null);
+  const menuRef = useRef(null);
+  const fileInputRef = useRef(null);
+
+  const toggleMenu = () => {
+    if (menuPos) return setMenuPos(null);
+    const r = editBtnRef.current.getBoundingClientRect();
+    setMenuPos({ top: r.bottom + 6, left: r.left });
+  };
+
+  // Close on outside click, Escape, scroll or resize (the fixed position
+  // would otherwise drift away from the button).
+  useEffect(() => {
+    if (!menuPos) return;
+    const close = () => setMenuPos(null);
+    const onPointer = (e) => {
+      if (!menuRef.current?.contains(e.target) && !editBtnRef.current?.contains(e.target)) close();
+    };
+    const onKey = (e) => { if (e.key === "Escape") close(); };
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [menuPos]);
 
   return (
     <div className={s.page}>
       {/* ── Banner ── */}
       <section className={s.hero}>
         <div className={s.heroRow}>
-          <div className={s.avatar}>
-            {admin.photo ? <img src={admin.photo} alt={admin.name} /> : (admin.name || "?").charAt(0)}
+          <div className={s.avatarWrap}>
+            <div className={s.avatar}>
+              {admin.photo ? <img src={admin.photo} alt={admin.name} /> : (admin.name || "?").charAt(0)}
+              {photoUploading && <span className={s.avatarBusy} aria-label="Uploading photo" />}
+            </div>
+            <button
+              ref={editBtnRef}
+              type="button"
+              className={s.avatarEdit}
+              title="Edit photo"
+              aria-label="Edit photo"
+              aria-haspopup="menu"
+              aria-expanded={!!menuPos}
+              disabled={photoUploading}
+              onClick={toggleMenu}
+            >
+              <Pencil size={15} />
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png"
+              hidden
+              onChange={(e) => {
+                onChangePhoto(e.target.files?.[0]);
+                e.target.value = ""; // so picking the same file again still fires
+              }}
+            />
           </div>
+          {menuPos && createPortal(
+            <div
+              ref={menuRef}
+              className={s.photoMenu}
+              role="menu"
+              style={{ top: menuPos.top, left: menuPos.left }}
+            >
+              <button
+                type="button"
+                role="menuitem"
+                className={s.photoMenuItem}
+                onClick={() => { setMenuPos(null); fileInputRef.current?.click(); }}
+              >
+                <Upload size={16} /> Upload photo
+              </button>
+              {admin.photo && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={`${s.photoMenuItem} ${s.photoMenuDanger}`}
+                  onClick={() => { setMenuPos(null); setConfirmRemove(true); }}
+                >
+                  <Trash2 size={16} /> Remove photo
+                </button>
+              )}
+            </div>,
+            document.body
+          )}
+          {confirmRemove && (
+            <ConfirmModal
+              type="delete"
+              title="Remove your profile photo?"
+              message="Your photo will be deleted and the default avatar will be shown instead. You can upload a new photo anytime."
+              confirmLabel="Remove Photo"
+              loading={photoUploading}
+              onConfirm={async () => {
+                await onRemovePhoto();
+                setConfirmRemove(false);
+              }}
+              onCancel={() => setConfirmRemove(false)}
+            />
+          )}
           <div className={s.identity}>
             <h1 className={s.name}>{admin.name}</h1>
             <div className={s.metaRow}>

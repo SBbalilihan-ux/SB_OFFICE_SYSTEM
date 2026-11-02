@@ -36,6 +36,7 @@ import {
   Lock,
 } from "lucide-react";
 import ConfirmModal from "./ConfirmModal";
+import ResetPasswordModal from "./ResetPasswordModal";
 import LoadingModal from "./LoadingModal";
 import ConnectionErrorModal from "./ConnectionErrorModal";
 import RecordScanNotice from "./RecordScanNotice";
@@ -480,6 +481,7 @@ export default function AdminDashboard() {
   // Email address the last "Email Me a Reset Link" went to, shown under the
   // button so the user knows where to look.
   const [myResetLinkSentTo, setMyResetLinkSentTo] = useState("");
+  const [myPhotoUploading, setMyPhotoUploading] = useState(false);
   const [myProfileSubmitting, setMyProfileSubmitting] = useState(false);
 
   // ── edit official states ──
@@ -1054,20 +1056,28 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleResetPassword = async (user) => {
+  // Stays open on failure so the Secretary doesn't have to retype the password.
+  const handleResetPassword = async (user, newPassword) => {
     setSubmitting(true);
     try {
       const res = await authFetch(`${API}/api/users/${user.id}/reset-password`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ newPassword }),
       });
       const data = await res.json();
-      if (res.ok && data.success) showSuccessModal(`Password reset link sent to ${user.email}.`);
-      else showMsg(data.error || "Failed to reset password.", "error");
+      if (res.ok && data.success) {
+        setResetPasswordTarget(null);
+        showSuccessModal(
+          data.emailSent
+            ? `${user.name}'s password was reset. A notice was emailed to ${data.email}. Give them the temporary password in person.`
+            : `${user.name}'s password was reset, but the notice email could not be sent${data.email ? "" : " (the account has no email address)"}. Give them the temporary password in person.`
+        );
+      } else showMsg(data.error || data.errors?.[0]?.msg || "Failed to reset password.", "error");
     } catch {
       showMsg("Server error.", "error");
     } finally {
       setSubmitting(false);
-      setResetPasswordTarget(null);
     }
   };
 
@@ -2229,6 +2239,56 @@ export default function AdminDashboard() {
 
   // Updates the account's own name — the one piece of their account a
   // non-admin user may edit themselves (see PUT /:id/name in routes/users.js).
+  // My Profile → Change photo. Any signed-in user may change their own
+  // photo (see PUT /:id/photo in routes/users.js).
+  const handleUpdateMyPhoto = async (file) => {
+    if (!file) return;
+    if (!["image/jpeg", "image/png"].includes(file.type)) {
+      showModalMsg("Photo must be a JPG or PNG image.", "error");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      showModalMsg("Photo must be 5 MB or smaller.", "error");
+      return;
+    }
+    setMyPhotoUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("photo", file);
+      const res = await authFetch(`${API}/api/users/${admin.id}/photo`, { method: "PUT", body: fd });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        const updated = { ...admin, photo: data.photo };
+        setAdmin(updated);
+        localStorage.setItem("user", JSON.stringify(updated));
+        showSuccessModal("Profile photo updated!");
+      } else showModalMsg(data.error || "Photo upload failed.", "error");
+    } catch {
+      showModalMsg("Server error!", "error");
+    } finally {
+      setMyPhotoUploading(false);
+    }
+  };
+
+  // My Profile → Remove photo: back to the default letter avatar.
+  const handleRemoveMyPhoto = async () => {
+    setMyPhotoUploading(true);
+    try {
+      const res = await authFetch(`${API}/api/users/${admin.id}/photo`, { method: "DELETE" });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        const updated = { ...admin, photo: null };
+        setAdmin(updated);
+        localStorage.setItem("user", JSON.stringify(updated));
+        showSuccessModal("Profile photo removed.");
+      } else showModalMsg(data.error || "Couldn't remove the photo.", "error");
+    } catch {
+      showModalMsg("Server error!", "error");
+    } finally {
+      setMyPhotoUploading(false);
+    }
+  };
+
   const handleUpdateMyName = async () => {
     const name = myProfileName.trim();
     if (!name) {
@@ -3022,6 +3082,9 @@ export default function AdminDashboard() {
             name={myProfileName}
             onNameChange={setMyProfileName}
             onSaveName={handleUpdateMyName}
+            onChangePhoto={handleUpdateMyPhoto}
+            onRemovePhoto={handleRemoveMyPhoto}
+            photoUploading={myPhotoUploading}
             onSendResetLink={handleSendMyResetLink}
             submitting={myProfileSubmitting}
             resetSentTo={myResetLinkSentTo}
@@ -6178,13 +6241,10 @@ export default function AdminDashboard() {
       )}
 
       {resetPasswordTarget && (
-        <ConfirmModal
-          type="warning"
-          title="Reset this account's password?"
-          message={`A password reset link will be emailed to "${resetPasswordTarget.email}". It lets them set a new password directly and expires in 1 hour.`}
-          confirmLabel="Send Reset"
+        <ResetPasswordModal
+          target={resetPasswordTarget}
           loading={submitting}
-          onConfirm={() => handleResetPassword(resetPasswordTarget)}
+          onSubmit={(newPassword) => handleResetPassword(resetPasswordTarget, newPassword)}
           onCancel={() => setResetPasswordTarget(null)}
         />
       )}

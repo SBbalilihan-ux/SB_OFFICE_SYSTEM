@@ -80,6 +80,106 @@
   transform-origin: center 35%;
 }
 
+/* Wraps the avatar so the "Change photo" button can sit on its edge without
+   being clipped by the avatar's overflow: hidden. */
+.avatarWrap {
+  position: relative;
+  flex: none;
+}
+.avatarWrap .avatar {
+  position: relative;
+}
+
+.avatarEdit {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 50%;
+  background: #c09a3c;
+  color: #fff;
+  border: 3px solid #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  transition: transform 0.15s, background 0.15s;
+}
+.avatarEdit:hover {
+  background: #a8852f;
+  transform: scale(1.06);
+}
+.avatarEdit:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+  transform: none;
+}
+
+/* Edit-photo menu — rendered into <body> with a fixed position (see
+   MyProfilePage.jsx), so it isn't clipped by the banner. */
+.photoMenu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 180px;
+  padding: 6px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(9, 4, 70, 0.18), 0 0 0 1px rgba(9, 4, 70, 0.06);
+  animation: photoMenuIn 0.12s ease;
+}
+@keyframes photoMenuIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.photoMenuItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: #1f2937;
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+.photoMenuItem:hover {
+  background: #f3f0fa;
+}
+.photoMenuDanger {
+  color: #dc2626;
+}
+.photoMenuDanger:hover {
+  background: #fef2f2;
+}
+
+.avatarBusy {
+  position: absolute;
+  inset: 0;
+  background: rgba(9, 4, 70, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.avatarBusy::after {
+  content: "";
+  width: 28px;
+  height: 28px;
+  border: 3px solid rgba(255, 255, 255, 0.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: avatarSpin 0.7s linear infinite;
+}
+@keyframes avatarSpin {
+  to { transform: rotate(360deg); }
+}
+
 .identity {
   flex: 1;
   min-width: 220px;
