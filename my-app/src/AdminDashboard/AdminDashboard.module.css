@@ -12,6 +12,7 @@
 .container {
   display: flex;
   height: 100vh;
+  height: 100dvh; /* visible height on phones (excludes browser bars) */
   width: 100vw;
   font-family: 'Nunito', 'Segoe UI', system-ui, -apple-system, sans-serif;
   background: #f0f4f8;
@@ -29,6 +30,7 @@
   flex-direction: column;
   color: #fff;
   height: 100vh;
+  height: 100dvh; /* visible height on phones (excludes browser bars) */
   overflow: hidden;
   transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
               min-width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
@@ -51,6 +53,7 @@
     top: 0;
     left: 0;
     height: 100vh;
+    height: 100dvh; /* visible height on phones (excludes browser bars) */
     width: 260px !important;
     min-width: 260px !important;
     transform: translateX(-100%);
@@ -1595,6 +1598,8 @@
 /* ── Sidebar Footer ── */
 .sidebarFooter {
   padding: 16px 10px;
+  /* Keep Logout above the phone's home bar / gesture area. */
+  padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid rgba(255,255,255,0.1);
   overflow: hidden;
   flex-shrink: 0;
@@ -1831,6 +1836,7 @@
   display: flex;
   flex-direction: column;
   height: 100vh;
+  height: 100dvh; /* visible height on phones (excludes browser bars) */
   overflow-y: auto;
   overflow-x: hidden;
   padding: 32px;
@@ -1842,6 +1848,7 @@
   .main {
     padding: 72px 16px 24px;
     height: 100vh;
+    height: 100dvh; /* visible height on phones (excludes browser bars) */
   }
 }
 
