@@ -6,7 +6,7 @@ services:
     runtime: node
     rootDir: my-backend
     region: singapore
-    plan: starter
+    plan: free
     buildCommand: npm ci
     startCommand: npm start
     healthCheckPath: /api/health
