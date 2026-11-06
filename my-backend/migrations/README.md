@@ -5,6 +5,11 @@ schema previously lived only in the Supabase dashboard with nothing in git,
 so past changes aren't reviewable or reproducible. This folder fixes that
 going forward.
 
+> **Setting up a new database?** Don't run these files — use
+> [`../database/schema.sql`](../database/schema.sql), which builds the whole
+> schema in one go. These numbered files only change an *existing* database.
+> When you add a new migration here, update `schema.sql` to match.
+
 ## Convention
 
 - `NNN_short_description.sql`, zero-padded, one more than the highest number
@@ -65,6 +70,7 @@ with real data in it.
 | 034 | `034_record_history.sql` | Adds the append-only `record_history` table (one row per event, never overwritten): the full trail of an ordinance/resolution from upload to publish/reject, including each author decline with its date and comment. Shown in the record's details to staff only (`GET /:id/history`). Backfills existing records with what can be rebuilt (upload, latest author decision per stage, VM approval, rejection + reason). **Run before restarting the backend on this code** — until then history writes just log an error and the History panel shows a load error. |
 | 035 | `035_record_history_from_activity_logs.sql` | Fills in older records' `record_history` from `activity_logs` (matched on "...: <title>", like 025): Accept, each reading / Send for VM Approval, author approval requests, every author decline (including ones a re-request overwrote — date only, their comment was never kept), Request Changes (reason from the comment thread), and Publish. Only imports logs from before live history recording started; runs once. |
 | 036 | `036_add_tour_completed.sql` | Adds `users.tour_completed` (default `false`): whether the account has finished or skipped the dashboard's guided tour, so it only auto-starts once. Existing accounts see it once on their next login. **Run before restarting the backend on this code** — login reads the column. |
+| 037 | `037_add_council_number.sql` | Adds `councils.council_number` (nullable, unique, 1–999) so a council is titled "12th Sangguniang Bayan" with its term under it. Entered in Add/Edit Council, not counted, since older councils aren't in the system. **Run before restarting the backend on this code** — Add/Edit Council saves the column. |
 
 Also required once, outside the numbered files (a raw `CREATE TABLE` in the
 SQL Editor doesn't inherit the grants Supabase's Table Editor UI applies

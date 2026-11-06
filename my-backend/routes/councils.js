@@ -6,6 +6,21 @@ const { verifyToken, adminOnly } = require('../middleware/auth')
 const { logActivity } = require('../helpers/logger')
 const { normalizeTermLabel, autoUpdateCouncilStatuses } = require('../helpers/councils')
 
+// council_number (migrations/037): 12 = "12th Sangguniang Bayan". Empty = not
+// set. Returns { value } or { error }.
+const parseCouncilNumber = (raw) => {
+  if (raw === undefined || raw === null || String(raw).trim() === '') return { value: null }
+  const n = Number(raw)
+  if (!Number.isInteger(n) || n < 1 || n > 999) return { error: 'Council number must be a whole number from 1 to 999.' }
+  return { value: n }
+}
+
+// Both the term label and the number are unique; say which one clashed.
+const duplicateMessage = (error) =>
+  /council_number/.test(`${error.message} ${error.details}`)
+    ? 'Another council already has this number.'
+    : 'A council with this term label already exists.'
+
 // GET /api/councils
 router.get('/', async (req, res) => {
   try {
@@ -30,13 +45,16 @@ router.post('/', verifyToken, adminOnly, async (req, res) => {
   const { term_label, term_start, term_end, status } = req.body
   const label = normalizeTermLabel(term_label)
   if (!label) return res.status(400).json({ error: 'Term label is required.' })
-  if (status && !['upcoming', 'active', 'concluded'].includes(status))
+  const number = parseCouncilNumber(req.body.council_number)
+  if (number.error) return res.status(400).json({ error: number.error })
+  if (status &&!['upcoming', 'active', 'concluded'].includes(status))
     return res.status(400).json({ error: 'status must be upcoming, active, or concluded.' })
   try {
     const { data, error } = await supabase
       .from('councils')
       .insert({
         term_label: label,
+        council_number: number.value,
         term_start: term_start || null,
         term_end: term_end || null,
         status: status || 'active',
@@ -44,7 +62,7 @@ router.post('/', verifyToken, adminOnly, async (req, res) => {
       .select().single()
     if (error) {
       if (error.code === '23505')
-        return res.status(409).json({ error: 'A council with this term label already exists.' })
+        return res.status(409).json({ error: duplicateMessage(error) })
       return res.status(500).json({ error: error.message })
     }
     await logActivity(req, 'CREATE', 'Officials', `Added council: ${label}`)
@@ -54,28 +72,34 @@ router.post('/', verifyToken, adminOnly, async (req, res) => {
   }
 })
 
-// PUT /api/councils/:id — rename a council's term label. term_start/term_end
+// PUT /api/councils/:id — rename a council's term label and/or set its
+// number (council_number changes only when it's sent). term_start/term_end
 // and status aren't editable here since nothing in the UI collects or
 // displays them for an existing council (status is auto-managed by
-// autoUpdateCouncilStatuses); the label is the only field anyone actually
-// sets or corrects, same scope as POST above.
+// autoUpdateCouncilStatuses).
 router.put('/:id', verifyToken, adminOnly, async (req, res) => {
   const { id } = req.params
   const label = normalizeTermLabel(req.body.term_label)
   if (!label) return res.status(400).json({ error: 'Term label is required.' })
+  const changes = { term_label: label }
+  if ('council_number' in req.body) {
+    const number = parseCouncilNumber(req.body.council_number)
+    if (number.error) return res.status(400).json({ error: number.error })
+    changes.council_number = number.value
+  }
   try {
     const { data, error } = await supabase
       .from('councils')
-      .update({ term_label: label })
+      .update(changes)
       .eq('id', id)
       .select().single()
     if (error) {
       if (error.code === 'PGRST116') return res.status(404).json({ error: 'Council not found.' })
       if (error.code === '23505')
-        return res.status(409).json({ error: 'A council with this term label already exists.' })
+        return res.status(409).json({ error: duplicateMessage(error) })
       return res.status(500).json({ error: error.message })
     }
-    await logActivity(req, 'UPDATE', 'Officials', `Renamed council to: ${label}`)
+    await logActivity(req, 'UPDATE', 'Officials', `Updated council: ${label}`)
     res.json({ success: true, data })
   } catch (err) {
     res.status(500).json({ error: err.message })

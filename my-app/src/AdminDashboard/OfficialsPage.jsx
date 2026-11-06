@@ -22,6 +22,22 @@ import { AccountLinkBadge } from "./AccountLinking";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
+// 1 -> "1st", 2 -> "2nd", 11 -> "11th", 22 -> "22nd"
+function ordinal(n) {
+  const mod100 = n % 100;
+  if (mod100 >= 11 && mod100 <= 13) return `${n}th`;
+  return `${n}${{ 1: "st", 2: "nd", 3: "rd" }[n % 10] || "th"}`;
+}
+
+// A council's title: "12th Sangguniang Bayan" once its number is set
+// (councils.council_number, migrations/037), otherwise just its term.
+function councilTitle(councilNumber, termPeriod) {
+  return councilNumber ? `${ordinal(councilNumber)} Sangguniang Bayan` : termPeriod;
+}
+
+// What the page-wide search matches a council on: its title and its term.
+const groupText = (g) => `${councilTitle(g.councilNumber, g.termPeriod)} ${g.termPeriod}`;
+
 function initials(name = "") {
   return (
     name
@@ -214,20 +230,32 @@ function MemberCard({
 }
 
 // ── CouncilFormModal ─────────────────────────────────────────────────────────
-// Shared by "Add Council" and "Edit Council" — identical shape (a single
-// term-label field), just a different starting value, title, and submit
+// Shared by "Add Council" and "Edit Council" — identical shape (council
+// number + term label), just a different starting value, title, and submit
 // label depending on `mode`.
 
-function CouncilFormModal({ mode = "add", initialLabel = "", onClose, onConfirm }) {
+function CouncilFormModal({
+  mode = "add",
+  initialLabel = "",
+  initialNumber = null,
+  onClose,
+  onConfirm,
+}) {
   const [termPeriod, setTermPeriod] = useState(initialLabel);
+  const [number, setNumber] = useState(initialNumber ? String(initialNumber) : "");
   const [error, showError, clearError] = useModalError();
   const [submitting, setSubmitting] = useState(false);
   const isEdit = mode === "edit";
+  const parsedNumber = number ? parseInt(number, 10) : null;
 
   const handleSubmit = async () => {
     const val = termPeriod.trim();
     if (!val) {
       showError("Please enter the term period.");
+      return;
+    }
+    if (parsedNumber !== null && (parsedNumber < 1 || parsedNumber > 999)) {
+      showError("Council number must be from 1 to 999.");
       return;
     }
     setSubmitting(true);
@@ -237,7 +265,7 @@ function CouncilFormModal({ mode = "add", initialLabel = "", onClose, onConfirm 
     // placeholder — it resolves to { success, error? } so a duplicate-label
     // conflict (or any other server error) surfaces here instead of
     // silently vanishing.
-    const result = await onConfirm(val);
+    const result = await onConfirm(val, parsedNumber);
     setSubmitting(false);
     if (result && result.success === false) {
       showError(result.error || `Failed to ${isEdit ? "update" : "add"} council.`);
@@ -262,6 +290,27 @@ function CouncilFormModal({ mode = "add", initialLabel = "", onClose, onConfirm 
         </div>
 
         <div className={styles.formGroup}>
+          <label>Council Number</label>
+          <input
+            type="text"
+            inputMode="numeric"
+            placeholder="e.g. 12"
+            value={number}
+            onChange={(e) => {
+              setNumber(e.target.value.replace(/\D/g, "").slice(0, 3));
+              clearError();
+            }}
+            onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+            autoFocus
+          />
+          <p className={styles.fieldHint}>
+            {parsedNumber
+              ? `Shown as "${ordinal(parsedNumber)} Sangguniang Bayan".`
+              : "Which Sangguniang Bayan this is, e.g. 12 for the 12th. Leave blank if unknown."}
+          </p>
+        </div>
+
+        <div className={styles.formGroup}>
           <label>
             Term Period / Year <span style={{ color: "#e53e3e" }}>*</span>
           </label>
@@ -279,10 +328,9 @@ function CouncilFormModal({ mode = "add", initialLabel = "", onClose, onConfirm 
               clearError();
             }}
             onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-            autoFocus
           />
           <p className={styles.fieldHint}>
-            This becomes the council group label. Members whose term records use
+            Shown under the council's title. Members whose term records use
             this exact term period will appear here automatically.
           </p>
         </div>
@@ -325,6 +373,7 @@ function entryMatches({ member, term }, query) {
 
 function CouncilGroup({
   termPeriod,
+  councilNumber = null,
   councilId,
   entries,
   isOpen,
@@ -400,7 +449,9 @@ function CouncilGroup({
 
   // A page-wide search that matches the council's own label (say "2022")
   // keeps every member of it; otherwise only members matching the query stay.
-  const labelMatches = !!norm(globalSearch) && norm(termPeriod).includes(norm(globalSearch));
+  const title = councilTitle(councilNumber, termPeriod);
+  const labelMatches =
+    !!norm(globalSearch) && norm(`${title} ${termPeriod}`).includes(norm(globalSearch));
   const filtered = useMemo(
     () =>
       entries.filter(
@@ -425,7 +476,10 @@ function CouncilGroup({
           </span>
           <div className={styles.councilAccent} />
           <div className={styles.councilInfo}>
-            <div className={styles.councilTermLabel}>{termPeriod}</div>
+            <div className={styles.councilTermLabel}>{title}</div>
+            {councilNumber && (
+              <div className={styles.councilTermRange}>Term {termPeriod}</div>
+            )}
             <div className={styles.councilMeta}>
               {entries.length} member{entries.length !== 1 ? "s" : ""}
               {activeCount > 0 && (
@@ -444,15 +498,17 @@ function CouncilGroup({
             <>
               <button
                 className={styles.councilActionBtn}
-                onClick={() => onEditCouncil(councilId, termPeriod)}
-                title={`Rename the ${termPeriod} council`}
+                onClick={() => onEditCouncil(councilId, termPeriod, councilNumber)}
+                title={`Edit the ${title}`}
               >
                 <Pencil size={13} />
               </button>
               <button
                 className={`${styles.councilActionBtn} ${styles.councilActionBtnDanger}`}
-                onClick={() => onDeleteCouncil(councilId, termPeriod)}
-                title={`Delete the ${termPeriod} council`}
+                onClick={() =>
+                  onDeleteCouncil(councilId, councilNumber ? `${title} (${termPeriod})` : termPeriod)
+                }
+                title={`Delete the ${title}`}
               >
                 <Trash2 size={13} />
               </button>
@@ -462,7 +518,7 @@ function CouncilGroup({
             <button
               className={styles.addMemberInlineBtn}
               onClick={() => onAddMember(termPeriod)}
-              title={`Add a member to the ${termPeriod} council`}
+              title={`Add a member to the ${title}`}
             >
               <UserPlus size={13} /> Add member
             </button>
@@ -589,28 +645,37 @@ export default function OfficialsPage({
       const [start = 0, end = start] = (g.termPeriod || "").match(/\d{4}/g)?.map(Number) ?? [];
       return [start, end];
     };
-    return [...emptyOnes, ...grouped].sort((a, b) => {
-      if (a.key === "unknown") return 1;
-      if (b.key === "unknown") return -1;
-      const [aStart, aEnd] = sortKey(a);
-      const [bStart, bEnd] = sortKey(b);
-      return bStart - aStart || bEnd - aEnd;
-    });
+    const numberById = new Map(councils.map((c) => [c.id, c.council_number ?? null]));
+    return [...emptyOnes, ...grouped]
+      .map((g) => ({ ...g, councilNumber: numberById.get(g.councilId) ?? null }))
+      .sort((a, b) => {
+        if (a.key === "unknown") return 1;
+        if (b.key === "unknown") return -1;
+        const [aStart, aEnd] = sortKey(a);
+        const [bStart, bEnd] = sortKey(b);
+        return bStart - aStart || bEnd - aEnd;
+      });
   }, [grouped, councils]);
+
+  // Add Council pre-fills the next number after the highest one in use.
+  const nextCouncilNumber = useMemo(() => {
+    const max = Math.max(0, ...councils.map((c) => c.council_number || 0));
+    return max > 0 ? max + 1 : null;
+  }, [councils]);
 
   const searching = !!norm(globalSearch);
   const visibleGroups = useMemo(() => {
     if (!searching) return allGroups;
     return allGroups.filter(
       (g) =>
-        norm(g.termPeriod).includes(norm(globalSearch)) ||
+        norm(groupText(g)).includes(norm(globalSearch)) ||
         g.entries.some((e) => entryMatches(e, globalSearch))
     );
   }, [allGroups, globalSearch, searching]);
   const matchCount = useMemo(
     () =>
       visibleGroups.reduce((n, g) => {
-        if (norm(g.termPeriod).includes(norm(globalSearch))) return n + g.entries.length;
+        if (norm(groupText(g)).includes(norm(globalSearch))) return n + g.entries.length;
         return n + g.entries.filter((e) => entryMatches(e, globalSearch)).length;
       }, 0),
     [visibleGroups, globalSearch]
@@ -619,9 +684,9 @@ export default function OfficialsPage({
   const toggleGroup = (key) =>
     setOpenGroups((prev) => ({ ...prev, [key]: !prev[key] }));
 
-  const handleAddCouncilConfirm = async (tp) => {
+  const handleAddCouncilConfirm = async (tp, number) => {
     if (!onAddCouncil) return { success: false, error: "Not available." };
-    const result = await onAddCouncil(tp);
+    const result = await onAddCouncil(tp, number);
     if (result.success) {
       const key = result.data?.id != null ? `council-${result.data.id}` : null;
       if (key) setOpenGroups((prev) => ({ ...prev, [key]: true }));
@@ -631,10 +696,10 @@ export default function OfficialsPage({
     return result;
   };
 
-  const handleEditCouncilConfirm = async (tp) => {
+  const handleEditCouncilConfirm = async (tp, number) => {
     if (!onEditCouncil || !editCouncilTarget)
       return { success: false, error: "Not available." };
-    const result = await onEditCouncil(editCouncilTarget.id, tp);
+    const result = await onEditCouncil(editCouncilTarget.id, tp, number);
     if (result.success) {
       setEditCouncilTarget(null);
       showSuccessModal?.("Council updated!");
@@ -759,10 +824,11 @@ export default function OfficialsPage({
         </div>
       ) : (
         <div className={styles.groupList}>
-          {visibleGroups.map(({ key, councilId, termPeriod, entries }) => (
+          {visibleGroups.map(({ key, councilId, councilNumber, termPeriod, entries }) => (
             <CouncilGroup
               key={key}
               termPeriod={termPeriod}
+              councilNumber={councilNumber}
               councilId={councilId}
               entries={entries}
               isOpen={searching || !!openGroups[key]}
@@ -776,7 +842,7 @@ export default function OfficialsPage({
               onEdit={onEditMember}
               onDelete={handleDelete}
               onViewProfile={onViewProfile}
-              onEditCouncil={(id, label) => setEditCouncilTarget({ id, label })}
+              onEditCouncil={(id, label, number) => setEditCouncilTarget({ id, label, number })}
               onDeleteCouncil={handleDeleteCouncilClick}
               onReorder={onReorderCouncil}
               readOnly={readOnly}
@@ -789,6 +855,7 @@ export default function OfficialsPage({
       {showAddCouncil && (
         <CouncilFormModal
           mode="add"
+          initialNumber={nextCouncilNumber}
           onClose={() => setShowAddCouncil(false)}
           onConfirm={handleAddCouncilConfirm}
         />
@@ -799,6 +866,7 @@ export default function OfficialsPage({
         <CouncilFormModal
           mode="edit"
           initialLabel={editCouncilTarget.label}
+          initialNumber={editCouncilTarget.number}
           onClose={() => setEditCouncilTarget(null)}
           onConfirm={handleEditCouncilConfirm}
         />

@@ -359,11 +359,11 @@ export default function AdminDashboard() {
     queryKey: COUNCILS_QUERY_KEY,
     queryFn: fetchCouncilsList,
   });
-  const handleAddCouncil = async (termLabel) => {
+  const handleAddCouncil = async (termLabel, councilNumber = null) => {
     try {
       const res = await authFetch(`${API}/api/councils`, {
         method: "POST",
-        body: JSON.stringify({ term_label: termLabel }),
+        body: JSON.stringify({ term_label: termLabel, council_number: councilNumber }),
       });
       const data = await res.json();
       if (res.ok && data.success) {
@@ -375,11 +375,11 @@ export default function AdminDashboard() {
       return { success: false, error: "Server error." };
     }
   };
-  const handleEditCouncil = async (id, termLabel) => {
+  const handleEditCouncil = async (id, termLabel, councilNumber = null) => {
     try {
       const res = await authFetch(`${API}/api/councils/${id}`, {
         method: "PUT",
-        body: JSON.stringify({ term_label: termLabel }),
+        body: JSON.stringify({ term_label: termLabel, council_number: councilNumber }),
       });
       const data = await res.json();
       if (res.ok && data.success) {

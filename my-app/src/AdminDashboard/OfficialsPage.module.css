@@ -244,6 +244,13 @@
   line-height: 1.2;
 }
 
+.councilTermRange {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #380075;
+  margin-bottom: 3px;
+}
+
 .councilMeta {
   display: flex;
   align-items: center;
